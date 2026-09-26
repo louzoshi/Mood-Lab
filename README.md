@@ -47,14 +47,37 @@ To reach it from a phone on the same Wi-Fi, add `--host 0.0.0.0` and open `http:
   ("my dog died" came out 85% sarcastic), so it was dropped. A "what is the overall tone?"
   choice question also mislabelled obvious joy, so the overall vibe is computed from the
   emotion bars instead.
-- **Latency on a GTX 1650 (7 questions):** ~80 ms Portuguese, ~180 ms English. On CPU it
-  was ~350 ms and ~1.3 s.
-- **GTX cards need fp32.** Laya autocasts to fp16 on any GPU older than Ampere, but GTX cards
-  have no tensor cores: fp16 ran at 0.4 TFLOPS vs 1.8 for fp32 on the 1650, and the extra fp16
-  weight copies pushed both checkpoints past 4 GB. The server switches to fp32 on GTX cards
-  (`server/backends.py`), which fits both checkpoints in ~3 GB.
-- **torch comes from PyTorch's CUDA 12.6 index** (`pyproject.toml`). The default PyPI build
-  pulls CUDA 13 wheels whose `nvidia-nvjitlink` failed its hash check here.
 
 Fine-tuning on the free Kaggle notebook linked from the Laya README is the way to make
 sarcasm and Portuguese work.
+
+## Performance: CPU vs GPU
+
+Time for one analysis (7 emotion questions, one short sentence), warm, measured on an Acer
+Nitro 5: i7-9750H, GTX 1650 Mobile 4 GB, 16 GB RAM.
+
+| | CPU | GTX 1650, fp16 (Laya's default) | GTX 1650, fp32 (this server) |
+|---|---|---|---|
+| Portuguese (`laya-multilingual`, 322M) | ~350 ms | ~280 ms | **~80 ms** |
+| English (`laya`, 421M) | ~1.3 s | ~1.1–1.8 s | **~180 ms** |
+| VRAM, both checkpoints loaded | – | full (out-of-memory retries) | ~3 GB of 4 GB |
+
+Scores are identical across all three (max difference 0.004).
+
+Why fp16 barely beats the CPU:
+
+- **GTX cards have no tensor cores.** Laya autocasts to fp16 on every GPU older than Ampere,
+  but on the 1650 a raw fp16 matmul ran at 0.4 TFLOPS against 1.8 TFLOPS in fp32. Clocks were
+  at full speed with no throttling, so it isn't the laptop's power settings.
+- **fp16 autocast keeps extra weight copies.** With both checkpoints loaded that filled the
+  4 GB card, and the allocator spent much of each request freeing and retrying. English alone
+  in fp32 took 251 ms; loaded next to the multilingual model in fp16 it took ~1.5 s.
+
+The server switches Laya to fp32 on GTX cards (`server/backends.py`, override with
+`LAYA_FP32`). It has to happen before the first forward pass, while no fp16 buffers exist. RTX
+cards have tensor cores, so Laya's fp16 default should suit them; that is untested here.
+
+torch is installed from PyTorch's CUDA 12.6 index (`pyproject.toml`), because the default PyPI
+build pulls CUDA 13 wheels whose `nvidia-nvjitlink` failed its hash check here. Laya's own
+benchmarks were run on a T4: 33 ms for one question, 72 ms for ten batched on the multilingual
+checkpoint.
