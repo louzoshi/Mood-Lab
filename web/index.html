@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mood Lab</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🧪 Mood Lab</div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="play" role="tab">Playground</button>
+      <button class="tab" data-tab="game" role="tab">Game: Hit the Mood</button>
+    </nav>
+    <div class="engine">
+      <select id="backend" title="Backend"></select>
+      <select id="model" title="Laya checkpoint"></select>
+    </div>
+  </header>
+
+  <main>
+    <!-- Playground -->
+    <section id="tab-play" class="panel">
+      <div class="grid">
+        <div class="card">
+          <div class="row between">
+            <h2>Say something</h2>
+            <label class="switch"><input type="checkbox" id="live" checked /> live</label>
+          </div>
+          <textarea id="text" rows="5" maxlength="2000"
+            placeholder="Type anything. Portuguese or English both work."></textarea>
+          <div class="row between">
+            <span class="hint">Try one:</span>
+            <button id="analyze" class="primary">Analyze <kbd>Ctrl ⏎</kbd></button>
+          </div>
+          <div class="chips" id="samples"></div>
+
+          <details class="custom" id="custom">
+            <summary>Ask your own questions</summary>
+            <p class="hint">
+              <b>noul</b> = yes/no probability · <b>score</b> = levels, low → high ·
+              <b>choice</b> = pick one. Separate options with <code>|</code>.
+            </p>
+            <div id="custom-list"></div>
+            <button id="custom-add" class="ghost">+ question</button>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h2>Reading</h2>
+            <span id="vibe" class="vibe">—</span>
+          </div>
+          <div id="bars" class="bars"></div>
+          <div id="custom-results"></div>
+          <div id="meta" class="meta"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Game -->
+    <section id="tab-game" class="panel hidden">
+      <div id="game-root" class="card game"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
