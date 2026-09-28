@@ -1,9 +1,56 @@
-# Mood Lab
+# Boar-Emotion-Radar
+
+Tracks the mood of the community replying to the BOAR app (@boar_app) on X: replies are scraped,
+scored for 7 emotions and BOAR-specific signals on the local GPU, stored in DuckDB and served to
+LLM agents (REST and MCP). The scoring runs on Mood Lab, a zero-shot sentiment server in this repo
+(`server/`), described in the second half of this README.
+
+## Run
+
+```bash
+uv sync
+uv run uvicorn server.app:app --port 8000               # Mood Lab (GPU if available)
+uv run uvicorn boar_emotion_radar.api:app --port 8001   # API + scoring worker, docs at /docs
+uv run python -m boar_emotion_radar.mcp_server          # MCP server (stdio), calls the API
+```
+
+- **Ingest:** `POST /api/ingest {"post_url"}` scrapes the replies with the Apify actor
+  `fastcrawler/twitter-x-comment-scraper-no-cookies-required` (needs `APIFY_TOKEN`; the actor is a
+  paid rental). `{"post_url", "items": [...]}` imports an exported actor dataset instead. The
+  actor takes one post per run; it does not list a profile's posts.
+- **Worker:** runs inside the API process (DuckDB allows one writing process per file). Replies
+  with no scores are the queue; each batch of `BOAR_EMOTION_RADAR_BATCH_SIZE` (32) replies is one
+  `/api/analyze_batch` call, and a failed batch is retried with backoff.
+- **Questions:** the 7 emotions plus three BOAR yes/no questions
+  (`boar_emotion_radar/questions.py`): bug report, praise for offline/airplane mode, iOS or
+  new-device request. They are worded in
+  English: on a small hand-labelled English/Portuguese set, Portuguese wording made more wrong
+  calls, e.g. "gm boar fam" as a 100% iOS request. Both still misfire on some replies (a
+  Portuguese crash report also read as an iOS request), so treat them as leads, not counts.
+- **Agent tools:** `get_profile_overview(username)`, `query_replies_by_emotion(username,
+  emotion, min_score)`, `analyze_text_sentiment(text)`, as `GET /api/profiles/{u}/overview`,
+  `GET /api/profiles/{u}/replies?emotion=&min_score=` and `POST /api/analyze`.
+
+Settings are environment variables (`BOAR_EMOTION_RADAR_*`, `MOODLAB_*`, `APIFY_TOKEN`), listed
+in `boar_emotion_radar/config.py`. The database is `data/boar_emotion_radar.duckdb`.
+
+### Batching
+
+Batching helps less than it might seem: on an RTX 3050 with the 10 questions, a reply takes
+66 ms alone and 47 ms in a batch of 32 (~21 replies/s), because Laya already runs one text's
+questions as a batch. Batched scores differ from one-at-a-time by at most 0.013 (padding).
+
+### Tests
+
+`uv run pytest`. The GPU tests (`-m gpu`) need CUDA and 4.5 GB free, so stop the Mood Lab
+server first; they skip otherwise.
+
+## Mood Lab: the sentiment engine
 
 A playground for zero-shot sentiment analysis with [Laya](https://github.com/NandhaKishorM/laya)
 (local) or Jev (TypeSafe cloud), plus a pass-the-phone party game built on top of it.
 
-## Run
+### Run
 
 ```bash
 uv sync
@@ -23,7 +70,7 @@ is slow on a spinning disk. Later starts are much faster.
 
 To reach it from a phone on the same Wi-Fi, add `--host 0.0.0.0` and open `http://<laptop-ip>:8000`.
 
-## What's in it
+### What's in it
 
 - **Playground:** type text and see 7 emotion bars (joy, sadness, anger, fear, surprise,
   disgust, bluff) update live, plus any yes/no, score or choice questions you add yourself.
@@ -31,9 +78,10 @@ To reach it from a phone on the same Wi-Fi, add `--host 0.0.0.0` and open `http:
   player writes one line, scores 0–100 by how close the model's reading lands, and the round
   ends with a leaderboard of everyone's lines.
 - **API:** `POST /api/analyze {"text", "questions"?, "backend": "laya"|"jev", "model": "auto"|"english"|"multilingual"}`.
-  `GET /api/config` returns the presets.
+  `POST /api/analyze_batch` takes `"texts"` (up to 64) instead of `"text"` and runs them through
+  shared forward passes. `GET /api/config` returns the presets.
 
-## Findings (Laya 0.3.20, zero-shot)
+### Findings (Laya 0.3.20, zero-shot)
 
 - **Ask yes/no questions, not 4-level scores.** Score rubrics drift toward the middle: "The
   meeting is at 3pm" read as ~55% of every emotion. Yes/no (`noul`) questions put neutral text
@@ -51,7 +99,7 @@ To reach it from a phone on the same Wi-Fi, add `--host 0.0.0.0` and open `http:
 Fine-tuning on the free Kaggle notebook linked from the Laya README is the way to make
 sarcasm and Portuguese work.
 
-## Performance: CPU vs GPU
+### Performance: CPU vs GPU
 
 Time for one analysis (7 emotion questions, one short sentence), warm, measured on an Acer
 Nitro 5: i7-9750H, GTX 1650 Mobile 4 GB, 16 GB RAM.
@@ -81,3 +129,7 @@ torch is installed from PyTorch's CUDA 12.6 index (`pyproject.toml`), because th
 build pulls CUDA 13 wheels whose `nvidia-nvjitlink` failed its hash check here. Laya's own
 benchmarks were run on a T4: 33 ms for one question, 72 ms for ten batched on the multilingual
 checkpoint.
+
+On torch 2.14 some eager CUDA ops run as Triton kernels, which compile C on first use. Without a C
+compiler (`cc`/`gcc`) the server switches those back to the stock CUDA kernels
+(`server/backends.py`); scores match the CPU's to 0.001.

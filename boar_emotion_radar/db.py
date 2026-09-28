@@ -19,6 +19,8 @@ def connect(path: str | None = None) -> duckdb.DuckDBPyConnection:
     if path != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(path)
+    # GLOBAL so cursor() connections inherit it: TIMESTAMPTZ values come back in UTC.
+    con.execute("SET GLOBAL TimeZone = 'UTC'")
     migrate(con)
     return con
 

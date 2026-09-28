@@ -1,6 +1,6 @@
 import pytest
 
-from xmood.db import connect, migrate
+from boar_emotion_radar.db import connect, migrate
 
 
 @pytest.fixture
@@ -15,8 +15,8 @@ def tables(con):
 
 
 def test_migrations_create_tables(con):
-    assert {"replies", "reply_emotions", "schema_migrations"} <= tables(con)
-    assert con.execute("SELECT version FROM schema_migrations").fetchall() == [(1,)]
+    assert {"replies", "reply_emotions", "reply_signals", "schema_migrations"} <= tables(con)
+    assert con.execute("SELECT version FROM schema_migrations ORDER BY 1").fetchall() == [(1,), (2,)]
 
 
 def test_migrate_is_idempotent(con):

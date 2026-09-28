@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from server.presets import EMOTIONS
-from xmood.schemas import AnalyzeTextRequest, Emotion, EmotionQuery, EmotionScores, Reply
+from boar_emotion_radar.schemas import AnalyzeTextRequest, Emotion, EmotionQuery, EmotionScores, Reply
 
 SCRAPED = {
     "commentId": "1790000000000000001",
