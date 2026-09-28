@@ -69,3 +69,43 @@ def test_replies_by_emotion_filters_and_orders(con):
     limited = store.replies_by_emotion(con, EmotionQuery(username="boar_app", emotion="anger",
                                                          min_score=0.8, limit=1))
     assert len(limited) == 1
+
+
+def test_posts_by_profile(con):
+    store.upsert_replies(con, [reply(1), reply(2)])
+    store.save_scores(con, [score("c001")])
+    (post,) = store.posts(con, "@BOAR_app")
+    assert (post.post_id, post.reply_total, post.analyzed_total) == ("p1", 2, 1)
+    assert post.url == "https://x.com/boar_app/status/p1"
+    assert store.posts(con, "nobody") == []
+
+
+def test_post_dashboard(con):
+    store.upsert_replies(con, [reply(1, "love it", likes=30), reply(2, "broken", likes=5),
+                               reply(3, "gm", likes=1), reply(4, "pending")])
+    store.save_scores(con, [
+        score("c001", {"offline_praise": 0.9, "bug_report": 0.0}, joy=0.95),
+        score("c002", {"bug_report": 0.8}, anger=0.6),
+        score("c003", {"bug_report": 0.1}, joy=0.2),  # nothing reaches 0.5: neutral
+    ])
+    d = store.post_dashboard(con, "p1")
+    assert (d.reply_total, d.analyzed_total, d.pending, d.like_total) == (4, 3, 1, 36)
+    assert d.dominant_counts == {"joy": 1, "anger": 1, "neutral": 1}
+    assert d.signal_counts == {"offline_praise": 1, "bug_report": 1}
+    assert [r.comment_id for r in d.replies] == ["c001", "c002", "c003"]  # most liked first
+    assert d.replies[2].dominant_emotion is None
+    assert [r.comment_id for r in d.top_positive] == ["c001"]
+    (alert,) = d.top_critical
+    assert (alert.comment_id, alert.critical_reason, alert.critical_score) == ("c002", "bug_report", 0.8)
+    assert d.mean_emotions.joy == pytest.approx((0.95 + 0.2) / 3)
+    assert d.url == "https://x.com/boar_app/status/p1"
+
+
+def test_post_dashboard_unknown_post(con):
+    assert store.post_dashboard(con, "nope") is None
+
+
+def test_profile_overview_counts_neutral(con):
+    store.upsert_replies(con, [reply(1), reply(2)])
+    store.save_scores(con, [score("c001", anger=0.9), score("c002", joy=0.3)])
+    assert store.profile_overview(con, "boar_app").dominant_counts == {"anger": 1, "neutral": 1}

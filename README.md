@@ -9,27 +9,53 @@ LLM agents (REST and MCP). The scoring runs on Mood Lab, a zero-shot sentiment s
 
 ```bash
 uv sync
-uv run uvicorn server.app:app --port 8000               # Mood Lab (GPU if available)
-uv run uvicorn boar_emotion_radar.api:app --port 8001   # API + scoring worker, docs at /docs
-uv run python -m boar_emotion_radar.mcp_server          # MCP server (stdio), calls the API
+uv run uvicorn server.app:app --port 8000      # open http://localhost:8000/#radar
 ```
 
-- **Ingest:** `POST /api/ingest {"post_url"}` scrapes the replies with the Apify actor
+One process serves the Mood Lab Playground, the **Boar X-Radar** tab, the radar API under
+`/radar/api` (docs at `/radar/docs`) and the scoring worker, on the GPU when there is one. In the
+tab, paste a post URL or id and press **Collect & analyze**; without `APIFY_TOKEN`, import an
+Apify dataset export (.json) instead. Posts already collected are in the **Analyzed posts**
+list, and `#radar/<post id>` links straight to a post's dashboard.
+
+The dashboard shows:
+
+- **KPIs:** replies analyzed, likes and views on them, and the predominant emotion as a share of
+  replies. A reply counts toward an emotion only if that emotion reaches 50%; below that on every
+  emotion it is neutral.
+- **Emotion mix:** the share of replies each emotion leads, with average intensity on hover.
+  Bars rather than a radar or donut chart: with 8 slices neither can be compared by eye.
+- **Emotion vs engagement:** one dot per reply, the chosen emotion's intensity against likes or
+  views (log scale), hover for the text.
+- **BOAR product signals:** share of replies answering yes to each BOAR question.
+- **Most positive / Critical & alerts:** top 5 by joy, and by the highest of anger, disgust and
+  bug report, with likes and views.
+
+For LLM agents, the MCP server (stdio) calls the same API:
+
+```bash
+uv run python -m boar_emotion_radar.mcp_server
+```
+
+### How it works
+
+- **Ingest:** `POST /radar/api/ingest {"post_url"}` scrapes the replies with the Apify actor
   `fastcrawler/twitter-x-comment-scraper-no-cookies-required` (needs `APIFY_TOKEN`; the actor is a
   paid rental). `{"post_url", "items": [...]}` imports an exported actor dataset instead. The
   actor takes one post per run; it does not list a profile's posts.
-- **Worker:** runs inside the API process (DuckDB allows one writing process per file). Replies
+- **Worker:** runs in the server process (DuckDB allows one writing process per file). Replies
   with no scores are the queue; each batch of `BOAR_EMOTION_RADAR_BATCH_SIZE` (32) replies is one
-  `/api/analyze_batch` call, and a failed batch is retried with backoff.
+  in-process `/api/analyze_batch` call, and a failed batch is retried with backoff.
 - **Questions:** the 7 emotions plus three BOAR yes/no questions
   (`boar_emotion_radar/questions.py`): bug report, praise for offline/airplane mode, iOS or
-  new-device request. They are worded in
-  English: on a small hand-labelled English/Portuguese set, Portuguese wording made more wrong
-  calls, e.g. "gm boar fam" as a 100% iOS request. Both still misfire on some replies (a
-  Portuguese crash report also read as an iOS request), so treat them as leads, not counts.
+  new-device request. They are worded in English: on a small hand-labelled English/Portuguese
+  set, Portuguese wording made more wrong calls, e.g. "gm boar fam" as a 100% iOS request. Both
+  still misfire on some replies (a Portuguese crash report also read as an iOS request), so
+  treat them as leads, not counts. Zero-shot, the emotions miss plain praise too: "This app is
+  great, love the design" reads as 14% joy on either checkpoint.
 - **Agent tools:** `get_profile_overview(username)`, `query_replies_by_emotion(username,
-  emotion, min_score)`, `analyze_text_sentiment(text)`, as `GET /api/profiles/{u}/overview`,
-  `GET /api/profiles/{u}/replies?emotion=&min_score=` and `POST /api/analyze`.
+  emotion, min_score)`, `analyze_text_sentiment(text)`, as `GET /radar/api/profiles/{u}/overview`,
+  `GET /radar/api/profiles/{u}/replies?emotion=&min_score=` and `POST /radar/api/analyze`.
 
 Settings are environment variables (`BOAR_EMOTION_RADAR_*`, `MOODLAB_*`, `APIFY_TOKEN`), listed
 in `boar_emotion_radar/config.py`. The database is `data/boar_emotion_radar.duckdb`.

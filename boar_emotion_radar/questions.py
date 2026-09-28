@@ -8,18 +8,18 @@ Portuguese wording 5, including "gm boar fam" read as a 100% iOS/device request.
 
 from server.presets import emotion_questions
 
-# id -> (Portuguese label for the team, question sent to the model)
+# id -> (label shown in the Playground, question sent to the model)
 BOAR_QUESTIONS: dict[str, tuple[str, str]] = {
     "bug_report": (
-        "Relata bug ou erro no app",
+        "Bug reports",
         "Is the user reporting a bug, crash, or error in the app?",
     ),
     "offline_praise": (
-        "Elogia o modo offline / avião",
+        "Offline / airplane-mode praise",
         "Is the user praising how the app works offline or in airplane mode?",
     ),
     "platform_request": (
-        "Pede iOS ou suporte a novos chips/dispositivos",
+        "iOS / new device requests",
         "Is the user asking for an iOS version or support for new chips or devices?",
     ),
 }

@@ -113,7 +113,7 @@ class ProfileOverview(BaseModel):
     view_total: int = Field(ge=0)
     mean_emotions: EmotionScores | None = None  # None until a reply has been analyzed
     dominant_emotion: Emotion | None = None
-    dominant_counts: dict[Emotion, int] = {}  # replies whose top emotion is each one
+    dominant_counts: dict[str, int] = {}  # replies per top emotion; "neutral" when none >= 0.5
     signal_counts: dict[str, int] = {}  # replies answering yes (>= 0.5) to each BOAR question
 
 
@@ -146,9 +146,53 @@ class TextSentiment(BaseModel):
     latency_ms: int
 
 
+class DashboardReply(BaseModel):
+    comment_id: str
+    twitter_username: str
+    reply_content: str
+    like_count: int
+    view_count: int
+    created_at: datetime
+    emotions: EmotionScores
+    dominant_emotion: Emotion | None  # None: neutral, no emotion reached 0.5
+    signals: dict[str, float] = {}
+    critical_score: float  # max of anger, disgust and bug_report
+    critical_reason: str   # which of the three it was
+
+
+class PostSummary(BaseModel):
+    post_id: str
+    profile_username: str
+    url: str
+    reply_total: int
+    analyzed_total: int
+    last_scraped_at: datetime
+
+
+class PostDashboard(BaseModel):
+    """Everything the Boar X-Radar tab draws for one post."""
+
+    post_id: str
+    profile_username: str
+    url: str
+    reply_total: int
+    analyzed_total: int
+    pending: int
+    like_total: int
+    view_total: int
+    last_scraped_at: datetime
+    mean_emotions: EmotionScores | None = None
+    dominant_counts: dict[str, int] = {}  # emotion ids and "neutral"
+    signal_counts: dict[str, int] = {}
+    replies: list[DashboardReply] = []  # analyzed, most liked first, at most 1000
+    top_positive: list[DashboardReply] = []  # joy >= 0.5, strongest first
+    top_critical: list[DashboardReply] = []  # critical_score >= 0.5, strongest first
+
+
 class IngestRequest(BaseModel):
     """Store the replies to one post: scraped through Apify (`items` omitted) or imported from
-    an actor dataset export (`items` given)."""
+    an actor dataset export (`items` given). `post_url` may also be a bare post id, taken as a
+    post by the default profile."""
 
     post_url: str = Field(min_length=1)
     items: list[dict] | None = None

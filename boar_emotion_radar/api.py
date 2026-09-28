@@ -2,9 +2,9 @@
 boar_emotion_radar/mcp_server.py), plus ingestion. It owns the DuckDB file and runs the
 scoring worker in-process, since DuckDB allows one writing process per file.
 
-Run (Mood Lab must be up at MOODLAB_URL):
+The Mood Lab server mounts it at /radar (server/app.py), which is the normal way to run it.
+Standalone, without the Playground (Mood Lab must be up at MOODLAB_URL):
     uv run uvicorn boar_emotion_radar.api:app --port 8001
-OpenAPI docs at http://localhost:8001/docs.
 """
 
 import asyncio
@@ -21,8 +21,9 @@ from . import scraper, store
 from .config import Settings
 from .db import connect
 from .moodlab import MoodLab, MoodLabError
+from .questions import BOAR_QUESTIONS
 from .schemas import (AnalyzeTextRequest, Emotion, EmotionQuery, IngestRequest, IngestResult,
-                      ProfileOverview, ReplyMood, TextSentiment)
+                      PostDashboard, PostSummary, ProfileOverview, ReplyMood, TextSentiment)
 from .worker import run_forever
 
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +35,7 @@ def create_app(settings: Settings | None = None, moodlab: MoodLab | None = None)
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.con = connect(settings.db_path)
+        # A client passed in belongs to the caller (server/app.py reuses it across restarts).
         app.state.moodlab = moodlab or MoodLab(settings)
         app.state.wake = asyncio.Event()
         worker = None
@@ -45,7 +47,8 @@ def create_app(settings: Settings | None = None, moodlab: MoodLab | None = None)
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
-        await app.state.moodlab.aclose()
+        if moodlab is None:
+            await app.state.moodlab.aclose()
         app.state.con.close()
 
     app = FastAPI(title="Boar-Emotion-Radar",
@@ -88,7 +91,7 @@ def create_app(settings: Settings | None = None, moodlab: MoodLab | None = None)
     async def ingest(req: IngestRequest, request: Request) -> IngestResult:
         """Store a post's replies (scraped, or `items` from an actor export) and queue them."""
         try:
-            profile, post_id = scraper.parse_post_url(req.post_url)
+            profile, post_id = scraper.parse_post_url(req.post_url, settings.profile)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
         items = req.items
@@ -96,7 +99,8 @@ def create_app(settings: Settings | None = None, moodlab: MoodLab | None = None)
             if not settings.apify_token:
                 raise HTTPException(400, "scraping needs APIFY_TOKEN; or send the replies as `items`")
             try:
-                items = await scraper.fetch_items(req.post_url, settings.apify_token, req.max_items)
+                items = await scraper.fetch_items(store.post_url(profile, post_id),
+                                                  settings.apify_token, req.max_items)
             except scraper.ScraperError as e:
                 raise HTTPException(502, str(e)) from e
         replies, skipped = scraper.to_replies(items, profile, post_id)
@@ -109,6 +113,26 @@ def create_app(settings: Settings | None = None, moodlab: MoodLab | None = None)
         request.app.state.wake.set()
         return IngestResult(post_id=post_id, profile_username=profile, stored=stored,
                             skipped=skipped)
+
+    @app.get("/api/config")
+    def config() -> dict:
+        """What the Playground's Boar X-Radar tab needs to render."""
+        return {"profile": settings.profile, "scraping": bool(settings.apify_token),
+                "signals": {qid: label for qid, (label, _) in BOAR_QUESTIONS.items()},
+                "threshold": store.YES}
+
+    @app.get("/api/posts")
+    def list_posts(cur: Cursor, username: str | None = None) -> list[PostSummary]:
+        """Posts with stored replies, most recently scraped first."""
+        return store.posts(cur, username)
+
+    @app.get("/api/posts/{post_id}")
+    def post_dashboard(post_id: str, cur: Cursor) -> PostDashboard:
+        """KPIs, emotion mix, BOAR signals and per-reply scores for one post."""
+        dashboard = store.post_dashboard(cur, post_id)
+        if dashboard is None:
+            raise HTTPException(404, f"no replies stored for post {post_id}")
+        return dashboard
 
     @app.get("/api/status")
     def status(cur: Cursor) -> dict:

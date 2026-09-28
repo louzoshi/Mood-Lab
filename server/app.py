@@ -1,4 +1,5 @@
-"""Sentiment playground: FastAPI server + static frontend.
+"""Sentiment playground: FastAPI server + static frontend, with Boar-Emotion-Radar mounted at
+/radar (its API, scoring worker and DuckDB file run in this process).
 
 Run:  uv run uvicorn server.app:app --reload --port 8000
 """
@@ -7,14 +8,20 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from boar_emotion_radar.api import create_app as create_radar
+from boar_emotion_radar.config import Settings as RadarSettings
+from boar_emotion_radar.moodlab import TIMEOUT, MoodLab
 
 from .backends import JevBackend, LayaBackend
 from .presets import emotion_questions, public_presets
@@ -32,10 +39,17 @@ async def lifespan(_: FastAPI):
     # Load the checkpoint in the background so the first request doesn't wait ~10 s.
     if os.environ.get("LAYA_PRELOAD", "1") != "0":
         threading.Thread(target=laya.warm_up, daemon=True).start()
-    yield
+    # Mounted apps don't get lifespan events, so run the radar's (DB + worker) from here.
+    async with radar.router.lifespan_context(radar):
+        yield
 
 
 app = FastAPI(title="Sentiment playground", lifespan=lifespan)
+
+# The radar scores replies through this app's /api/analyze_batch, called in-process.
+_radar_settings = replace(RadarSettings.from_env(), moodlab_url="http://moodlab")
+radar = create_radar(_radar_settings, MoodLab(_radar_settings, httpx.AsyncClient(
+    transport=httpx.ASGITransport(app=app), timeout=TIMEOUT)))
 
 
 class AnalyzeRequest(BaseModel):
@@ -105,6 +119,9 @@ async def analyze_batch(req: AnalyzeBatchRequest) -> dict:
         raise HTTPException(502, str(e)) from e
     latency = (time.perf_counter() - start) * 1000
     return {"backend": req.backend, "latency_ms": round(latency), "results": results}
+
+
+app.mount("/radar", radar)
 
 
 @app.get("/")

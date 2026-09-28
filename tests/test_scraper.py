@@ -64,3 +64,9 @@ async def test_fetch_items_raises_on_http_error():
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(402, text="rent")))
     with pytest.raises(scraper.ScraperError, match="402"):
         await scraper.fetch_items("https://x.com/boar_app/status/1", "tok", 50, client)
+
+
+def test_parse_bare_post_id_uses_default_profile():
+    assert scraper.parse_post_url(" 1910363426972635455 ", "BOAR_app") == ("boar_app", "1910363426972635455")
+    with pytest.raises(ValueError):
+        scraper.parse_post_url("1910363426972635455")  # no default profile

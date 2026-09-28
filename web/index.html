@@ -13,6 +13,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="play" role="tab">Playground</button>
       <button class="tab" data-tab="game" role="tab">Game: Hit the Mood</button>
+      <button class="tab" data-tab="radar" role="tab">Boar X-Radar</button>
     </nav>
     <div class="engine">
       <select id="backend" title="Backend"></select>
@@ -64,8 +65,81 @@
     <section id="tab-game" class="panel hidden">
       <div id="game-root" class="card game"></div>
     </section>
+
+    <!-- Boar X-Radar -->
+    <section id="tab-radar" class="panel hidden">
+      <div class="card radar-input">
+        <div class="row between">
+          <h2>Analyze the replies to an X post</h2>
+          <label class="row history">Analyzed posts
+            <select id="radar-history"><option value="">—</option></select>
+          </label>
+        </div>
+        <form id="radar-form" class="row">
+          <input type="text" id="radar-url" autocomplete="off" spellcheck="false"
+            placeholder="https://x.com/boar_app/status/… or a post id" />
+          <button id="radar-go" class="primary" type="submit">Collect &amp; analyze</button>
+        </form>
+        <div class="row hint">
+          <span id="radar-source"></span>
+          <label class="ghost-file">import an Apify export (.json)
+            <input type="file" id="radar-file" accept=".json,application/json" />
+          </label>
+        </div>
+        <div id="radar-status" class="meta" role="status"></div>
+      </div>
+
+      <div id="radar-dash" class="dash hidden">
+        <div class="row between dash-head">
+          <a id="radar-post" target="_blank" rel="noopener"></a>
+          <span id="radar-scraped" class="muted"></span>
+        </div>
+        <div class="kpis" id="radar-kpis"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="row between">
+              <h2>Emotion mix</h2>
+              <span class="hint">share of replies each emotion leads</span>
+            </div>
+            <div id="radar-mix" class="mix"></div>
+          </div>
+          <div class="card">
+            <div class="row between">
+              <h2>Emotion vs engagement</h2>
+              <div class="row">
+                <select id="radar-emotion" title="Emotion on the x-axis"></select>
+                <select id="radar-metric" title="Engagement on the y-axis">
+                  <option value="like_count">likes</option>
+                  <option value="view_count">views</option>
+                </select>
+              </div>
+            </div>
+            <div id="radar-scatter" class="scatter"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row between">
+            <h2>BOAR product signals</h2>
+            <span class="hint">share of analyzed replies answering yes</span>
+          </div>
+          <div id="radar-signals" class="signals"></div>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <h2>😄 Most positive</h2>
+            <div id="radar-top-positive"></div>
+          </div>
+          <div class="card">
+            <h2>🚨 Critical &amp; alerts</h2>
+            <div id="radar-top-critical"></div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
+  <div id="viz-tip" class="viz-tip hidden" role="tooltip"></div>
   <script src="/app.js"></script>
+  <script src="/radar.js"></script>
 </body>
 </html>

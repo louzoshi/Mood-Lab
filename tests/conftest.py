@@ -1,5 +1,11 @@
 import json
+import os
 from dataclasses import replace
+
+# server.app mounts the radar at import time with settings from the environment: keep tests off
+# the real database and don't load Laya checkpoints in the lifespan.
+os.environ["BOAR_EMOTION_RADAR_DB"] = ":memory:"
+os.environ["LAYA_PRELOAD"] = "0"
 
 import httpx
 import pytest

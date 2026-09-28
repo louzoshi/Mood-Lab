@@ -25,11 +25,15 @@ class ScraperError(RuntimeError):
     pass
 
 
-def parse_post_url(url: str) -> tuple[str, str]:
-    """(profile username, post id) from an x.com or twitter.com status URL."""
-    m = POST_URL.match(url.strip())
+def parse_post_url(url: str, default_profile: str | None = None) -> tuple[str, str]:
+    """(profile username, post id) from an x.com or twitter.com status URL, or from a bare
+    post id when `default_profile` is given."""
+    url = url.strip()
+    if default_profile and url.isdigit():
+        return username(default_profile), url
+    m = POST_URL.match(url)
     if not m:
-        raise ValueError(f"not an X post URL: {url!r}")
+        raise ValueError(f"not an X post URL or id: {url!r}")
     return username(m[1]), m[2]
 
 

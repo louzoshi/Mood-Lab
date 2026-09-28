@@ -6,11 +6,11 @@
 | `BOAR_EMOTION_RADAR_PROFILE` | `boar_app` | profile the dashboard and MCP tools default to |
 | `BOAR_EMOTION_RADAR_BATCH_SIZE` | `32` | replies per Mood Lab batch (at most 64) |
 | `BOAR_EMOTION_RADAR_WORKER` | `1` | `0` serves the API without scoring pending replies |
-| `MOODLAB_URL` | `http://localhost:8000` | Mood Lab server that serves `/api/analyze[_batch]` |
+| `MOODLAB_URL` | `http://localhost:8000` | Mood Lab, for the standalone API only (mounted, it's in-process) |
 | `MOODLAB_BACKEND` | `laya` | `laya` (local) or `jev` (needs `TYPESAFE_API_KEY` on the Mood Lab server) |
 | `MOODLAB_MODEL` | `auto` | Laya checkpoint: `auto`, `english` or `multilingual` |
 | `APIFY_TOKEN` | unset | enables scraping through the Apify actor (`boar_emotion_radar/scraper.py`) |
-| `BOAR_EMOTION_RADAR_API_URL` | `http://localhost:8001` | where the MCP server reaches the API |
+| `BOAR_EMOTION_RADAR_API_URL` | `http://localhost:8000/radar` | where the MCP server reaches the API |
 """
 
 import os
@@ -43,5 +43,6 @@ class Settings:
             moodlab_backend=os.environ.get("MOODLAB_BACKEND", "laya"),
             moodlab_model=os.environ.get("MOODLAB_MODEL", "auto"),
             apify_token=os.environ.get("APIFY_TOKEN") or None,
-            api_url=os.environ.get("BOAR_EMOTION_RADAR_API_URL", "http://localhost:8001").rstrip("/"),
+            api_url=os.environ.get("BOAR_EMOTION_RADAR_API_URL",
+                                   "http://localhost:8000/radar").rstrip("/"),
         )

@@ -340,14 +340,22 @@ async function boot() {
   $("#model").innerHTML = CONFIG.laya_models.map((m) => `<option>${m}</option>`).join("");
   $("#backend").addEventListener("change", () => { $("#model").classList.toggle("hidden", $("#backend").value !== "laya"); });
 
-  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
-    $("#tab-play").classList.toggle("hidden", t.dataset.tab !== "play");
-    $("#tab-game").classList.toggle("hidden", t.dataset.tab !== "game");
+  const tabs = document.querySelectorAll(".tab");
+  tabs.forEach((t) => t.addEventListener("click", () => {
+    tabs.forEach((x) => x.classList.toggle("active", x === t));
+    tabs.forEach((x) => $(`#tab-${x.dataset.tab}`).classList.toggle("hidden", x !== t));
+    // The radar is scored with the server's settings, not this backend/model picker.
+    $(".engine").classList.toggle("hidden", t.dataset.tab === "radar");
+    if (location.hash.slice(1).split("/")[0] !== t.dataset.tab) {
+      history.replaceState(null, "", t.dataset.tab === "play" ? location.pathname : `#${t.dataset.tab}`);
+    }
+    document.dispatchEvent(new CustomEvent("tabchange", { detail: t.dataset.tab }));
   }));
 
   initPlayground();
   gameSetup();
+  // "#game", "#radar" or "#radar/<post id>" opens that tab.
+  document.querySelector(`.tab[data-tab="${location.hash.slice(1).split("/")[0]}"]`)?.click();
 }
 
 boot();

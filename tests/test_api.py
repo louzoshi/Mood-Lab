@@ -72,3 +72,21 @@ def test_ingest_needs_token_or_items(client):
     r = client.post("/api/ingest", json={"post_url": POST})
     assert r.status_code == 400 and "APIFY_TOKEN" in r.text
     assert client.post("/api/ingest", json={"post_url": "https://x.com/boar_app", "items": []}).status_code == 400
+
+
+def test_posts_and_dashboard(client):
+    client.post("/api/ingest", json={"post_url": "1910363426972635455", "items": ITEMS})
+    wait_scored(client)
+    (post,) = client.get("/api/posts").json()
+    assert (post["post_id"], post["profile_username"], post["reply_total"]) == ("1910363426972635455", "boar_app", 2)
+    d = client.get("/api/posts/1910363426972635455").json()
+    assert (d["analyzed_total"], d["pending"], d["like_total"]) == (2, 0, 13)
+    assert d["top_critical"][0]["comment_id"] == "1"
+    assert d["top_positive"][0]["comment_id"] == "2"
+    assert client.get("/api/posts/404").status_code == 404
+
+
+def test_config(client):
+    c = client.get("/api/config").json()
+    assert c["profile"] == "boar_app" and c["scraping"] is False and c["threshold"] == 0.5
+    assert set(c["signals"]) == {"bug_report", "offline_praise", "platform_request"}
