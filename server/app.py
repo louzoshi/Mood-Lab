@@ -5,8 +5,10 @@ Run:  uv run uvicorn server.app:app --reload --port 8000
 
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -19,6 +21,7 @@ from .presets import emotion_questions, public_presets
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 MAX_CHARS = 2000
+MAX_BATCH = 64
 LAYA_MODELS = {"auto": None, "english": "english", "multilingual": "multilingual"}
 
 laya = LayaBackend(device=os.environ.get("LAYA_DEVICE") or None)
@@ -42,6 +45,15 @@ class AnalyzeRequest(BaseModel):
     model: str = "auto"
 
 
+class AnalyzeBatchRequest(BaseModel):
+    texts: list[Annotated[str, Field(min_length=1, max_length=MAX_CHARS)]] = Field(
+        min_length=1, max_length=MAX_BATCH)
+    questions: dict | None = None  # one question set for every text
+    backend: str = "laya"
+    model: str = "auto"
+    batch_size: int = Field(default=32, ge=1, le=MAX_BATCH)
+
+
 @app.get("/api/config")
 def config() -> dict:
     return {
@@ -51,8 +63,8 @@ def config() -> dict:
     }
 
 
-@app.post("/api/analyze")
-async def analyze(req: AnalyzeRequest) -> dict:
+def _resolve(req: AnalyzeRequest | AnalyzeBatchRequest) -> tuple[dict, object, str | None]:
+    """Validated (questions, backend, model) for a request."""
     questions = req.questions or emotion_questions()
     for qid, q in questions.items():
         if not isinstance(q, dict) or q.get("type") not in ("score", "noul", "choice"):
@@ -63,19 +75,36 @@ async def analyze(req: AnalyzeRequest) -> dict:
     if req.backend == "jev":
         if not jev:
             raise HTTPException(400, "Jev is not configured (set TYPESAFE_API_KEY)")
-        backend, model = jev, None
-    elif req.backend == "laya":
+        return questions, jev, None
+    if req.backend == "laya":
         if req.model not in LAYA_MODELS:
             raise HTTPException(400, f"unknown Laya model {req.model!r}")
-        backend, model = laya, LAYA_MODELS[req.model]
-    else:
-        raise HTTPException(400, f"unknown backend {req.backend!r}")
+        return questions, laya, LAYA_MODELS[req.model]
+    raise HTTPException(400, f"unknown backend {req.backend!r}")
 
+
+@app.post("/api/analyze")
+async def analyze(req: AnalyzeRequest) -> dict:
+    questions, backend, model = _resolve(req)
     try:
         result = await run_in_threadpool(backend.predict, req.text, questions, model)
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
     return {"backend": req.backend, **result}
+
+
+@app.post("/api/analyze_batch")
+async def analyze_batch(req: AnalyzeBatchRequest) -> dict:
+    """Same as /api/analyze for many texts; `results` is in `texts` order."""
+    questions, backend, model = _resolve(req)
+    start = time.perf_counter()
+    try:
+        results = await run_in_threadpool(backend.predict_batch, req.texts, questions, model,
+                                          req.batch_size)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e)) from e
+    latency = (time.perf_counter() - start) * 1000
+    return {"backend": req.backend, "latency_ms": round(latency), "results": results}
 
 
 @app.get("/")

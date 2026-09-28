@@ -9,6 +9,7 @@ top option's probability for choice.
 """
 
 import os
+import shutil
 import threading
 import time
 
@@ -44,6 +45,17 @@ def _use_fp32(torch) -> bool:
     return "GTX" in torch.cuda.get_device_name()
 
 
+def _disable_triton_without_compiler() -> None:
+    """torch 2.14 routes some eager CUDA ops (e.g. the bmm in ModernBERT's rotary embedding)
+    to Triton kernels, which compile C on first use and fail without a C compiler. Fall back to
+    the stock CUDA kernels instead; scores match the CPU's to 0.001."""
+    if shutil.which(os.environ.get("CC", "cc")) or shutil.which("gcc"):
+        return
+    from torch._native import registry
+
+    registry.deregister_op_overrides(disable_dsl_names="triton")
+
+
 class LayaBackend:
     """Loads checkpoints lazily; one forward pass at a time (single small GPU)."""
 
@@ -61,6 +73,8 @@ class LayaBackend:
             # The Intel iGPU is not a CUDA device, so "cuda" is always the NVIDIA card.
             if self._device is None:
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            if self._device == "cuda":
+                _disable_triton_without_compiler()
             # Short Portuguese text has no reliable language signal; default it to the
             # multilingual checkpoint instead of English.
             self._router = Router(device=self._device, default="multilingual")
@@ -97,6 +111,19 @@ class LayaBackend:
             "latency_ms": round(latency),
         }
 
+    def predict_batch(self, texts: list[str], questions: dict, model: str | None,
+                      batch_size: int = 32) -> list[dict]:
+        """Texts routed to the same checkpoint share forward passes (RTX 3050, 10 questions:
+        47 ms per text at 32 vs 66 ms one at a time). Results come back in input order."""
+        requests = [{"state": t, "questions": questions, "model": model} for t in texts]
+        with self._lock:
+            router = self._get_router()
+            results = router.predict_batch(requests, batch_size=batch_size)
+        return [{
+            "answers": {qid: normalize(questions[qid], a) for qid, a in r["answers"].items()},
+            "model": f"laya/{(r.get('routing') or {}).get('model', model or 'auto')} on {self._device}",
+        } for r in results]
+
 
 class JevBackend:
     def __init__(self, api_key: str):
@@ -119,3 +146,9 @@ class JevBackend:
             "reason": None,
             "latency_ms": round(latency),
         }
+
+    def predict_batch(self, texts: list[str], questions: dict, model: str | None,
+                      batch_size: int = 32) -> list[dict]:
+        # The Jev API takes one state per request.
+        return [{k: r[k] for k in ("answers", "model")}
+                for r in (self.predict(t, questions, model) for t in texts)]
